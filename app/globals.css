@@ -140,7 +140,6 @@ td.niche, td.name { max-width: 240px; overflow: hidden; text-overflow: ellipsis;
 .queue-field { color: var(--muted); font-size: 13px; margin-bottom: 6px; }
 .queue-by { color: var(--muted); font-size: 12.5px; margin-top: 6px; }
 .queue-actions { display: flex; gap: 8px; flex: 0 0 auto; }
-.login-note { color: var(--muted); font-size: 12.5px; margin-top: 14px; }
 
 /* --- a price change waiting for approval --- */
 .price.pending { background: #fff8e1; border-color: #e6cf7a; }

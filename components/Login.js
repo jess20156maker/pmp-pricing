@@ -32,9 +32,6 @@ export default function Login() {
         />
         <button disabled={busy}>{busy ? "Signing in…" : "View pricing"}</button>
         {error && <div className="login-err">{error}</div>}
-        <p className="login-note">
-          Post Market Publishing staff are recognised automatically and can request price changes.
-        </p>
       </form>
     </div>
   );

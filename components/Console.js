@@ -186,7 +186,7 @@ export default function Console({ email, role }) {
     return (
       <>
         <Header email={email} onRefresh={() => load(true)} count="" />
-        <div className="sentinel">Loading sites from Airtable…</div>
+        <div className="sentinel">Loading…</div>
       </>
     );
   }
