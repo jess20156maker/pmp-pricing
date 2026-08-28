@@ -22,7 +22,6 @@ Every price change writes a record to **Pricing Change Log** and stamps
    - `AIRTABLE_TOKEN`, `AIRTABLE_BASE_ID`, `AIRTABLE_WEBSITES_TABLE`
    - `SESSION_SECRET` — run `openssl rand -hex 32` and paste the result
    - `ACCESS_PASSWORD` — the password you give the sales team
-   - `ALLOWED_EMAIL_DOMAINS` — e.g. `postmarketpublishing.com`
 
 5. **Deploy.** You get a `*.vercel.app` URL immediately. To use your own domain,
    Vercel → Settings → Domains → add `pricing.postmarketpublishing.com` and follow
@@ -52,18 +51,16 @@ npm run dev                    # http://localhost:3000
 
 - **Add or remove an editable price field** — `lib/fields.js`, `PRICE_FIELDS`.
 - **Change which columns show** — `components/Console.js`.
-- **Change who can sign in** — `ALLOWED_EMAIL_DOMAINS` / `ALLOWED_EMAILS`. Removing
-  someone takes effect on their next request, not when their cookie expires. To cut
-  off someone who has left, also change `ACCESS_PASSWORD`.
+- **Cut off access** — change `ACCESS_PASSWORD` and redeploy. That is the only lever;
+  there is no per-person allowlist.
 - **Restrict to a subset of sites** — set `AIRTABLE_VIEW` to an Airtable view name or ID.
 
 ## How sign-in works
 
-- Someone enters their work email and the shared team password. Both must be right:
-  the email must be on an allowed domain (or in `ALLOWED_EMAILS`), and the password
-  must match `ACCESS_PASSWORD`.
-- A wrong email and a wrong password give the identical error, so the page can't be
-  used to work out who has access.
+- Someone enters their work email and the shared team password. The email is checked
+  for shape only — it is not a credential, and there is no allowlist. It exists so each
+  price change can be attributed in the log.
+- `ACCESS_PASSWORD` is the only thing gating access.
 - The password is compared in constant time and never stored anywhere but the Vercel
   environment. If `ACCESS_PASSWORD` is unset the app fails closed — nobody gets in.
 - After signing in, a signed cookie holds their email for 30 days. No database, so it
@@ -73,11 +70,11 @@ npm run dev                    # http://localhost:3000
 
 ## Known gaps (deliberate, for now)
 
-- **The email address is not verified.** The password is the real gate; the email is
-  there to attribute changes in the log. Someone who knows the password could type a
-  colleague's address. Everyone shares one password, so it must be changed by hand when
-  somebody leaves. If you later want per-person sign-in, restore the emailed six-digit
-  code — it is in the git history at commit `967615a`.
+- **Anyone with the password can sign in, using any email address.** There is no
+  allowlist and the email is not verified — it only labels changes in the log. Everyone
+  shares one password, so change it by hand when somebody leaves. If you later want
+  per-person sign-in, the emailed six-digit code version is in the git history at
+  commit `967615a`.
 - No bulk edit yet.
 - The second rate card (the sheet tab with the `New` flag and `DA` column) is not in
   Airtable, so it is not in this app either.
