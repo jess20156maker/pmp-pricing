@@ -22,6 +22,9 @@ export async function POST(req) {
 
   try {
     const reqRow = await getRequest(id);
+    if (!reqRow) {
+      return NextResponse.json({ error: "That request no longer exists" }, { status: 404 });
+    }
 
     // Deciding twice would apply the price twice and overwrite the first decision.
     if (reqRow.status !== "Pending") {

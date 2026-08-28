@@ -173,6 +173,13 @@ export default function Console({ email, role }) {
     setSort((s) => (s.key === key ? { key, dir: -s.dir } : { key, dir: key === "website" || key === "siteName" ? 1 : -1 }));
   }
 
+  // One pending request per price cell, keyed so a cell can show its own state.
+  const pendingByCell = useMemo(() => {
+    const m = new Map();
+    for (const r of queue || []) m.set(`${r.recordId}:${r.fieldKey}`, r);
+    return m;
+  }, [queue]);
+
   const visible = filtered.slice(0, shown);
 
   if (rows === null) {
@@ -244,7 +251,7 @@ export default function Console({ email, role }) {
           </thead>
           <tbody>
             {visible.map((r) => (
-              <Row key={r.id} row={r} onEdit={openEditor} isCustomer={isCustomer} />
+              <Row key={r.id} row={r} onEdit={openEditor} isCustomer={isCustomer} pendingByCell={pendingByCell} />
             ))}
           </tbody>
         </table>
@@ -258,6 +265,7 @@ export default function Console({ email, role }) {
           field={editing.field}
           email={email}
           isApprover={isApprover}
+          pending={pendingByCell.get(`${editing.row.id}:${editing.field.key}`)}
           onSave={savePrice}
           onClose={() => setEditing(null)}
         />
@@ -266,7 +274,7 @@ export default function Console({ email, role }) {
   );
 }
 
-function PriceEditor({ row, field, email, isApprover, onSave, onClose }) {
+function PriceEditor({ row, field, email, isApprover, pending, onSave, onClose }) {
   const current = money(row.prices[field.key]);
   const [value, setValue] = useState(current);
   const [busy, setBusy] = useState(false);
@@ -285,7 +293,10 @@ function PriceEditor({ row, field, email, isApprover, onSave, onClose }) {
   }, [onClose, busy]);
 
   const next = value.trim();
-  const changed = next !== current;
+  // A second request on the same cell would leave two conflicting rows pending,
+  // and whichever was approved last would silently win.
+  const blocked = !!pending && !isApprover;
+  const changed = next !== current && !blocked;
   const show = (v) => (v === "" || v === null ? "—" : `$${v}`);
 
   async function submit(e) {
@@ -304,9 +315,24 @@ function PriceEditor({ row, field, email, isApprover, onSave, onClose }) {
   return (
     <div className="modal-back" onMouseDown={(e) => { if (e.target === e.currentTarget && !busy) onClose(); }}>
       <form className="modal" role="dialog" aria-modal="true" aria-labelledby="ct" onSubmit={submit}>
-        <h3 id="ct">{isApprover ? "Edit price" : "Request a price change"}</h3>
+        <h3 id="ct">
+          {pending ? "Pending price approval" : isApprover ? "Edit price" : "Request a price change"}
+        </h3>
         <div className="modal-site">{row.website}</div>
         <div className="modal-field">{field.label}</div>
+
+        {pending && (
+          <div className="pending-note">
+            <b>Waiting for approval.</b>{" "}
+            {pending.oldValue === "" ? "—" : `$${pending.oldValue}`} →{" "}
+            {pending.newValue === "" ? "—" : `$${pending.newValue}`}, requested by{" "}
+            {pending.requestedBy}
+            {pending.requestedAt ? ` on ${new Date(pending.requestedAt).toLocaleString()}` : ""}.
+            {isApprover
+              ? " Approve or reject it from the banner at the top."
+              : " The price changes only once an approver accepts it."}
+          </div>
+        )}
 
         <label className="modal-label" htmlFor="price-input">New price (USD)</label>
         <input
@@ -338,7 +364,11 @@ function PriceEditor({ row, field, email, isApprover, onSave, onClose }) {
         <div className="modal-actions">
           <button type="button" className="btn ghost" onClick={onClose} disabled={busy}>Cancel</button>
           <button type="submit" className="btn go" disabled={!changed || busy}>
-            {busy ? (isApprover ? "Saving…" : "Sending…") : (isApprover ? "Update price" : "Send for approval")}
+            {busy
+              ? (isApprover ? "Saving…" : "Sending…")
+              : blocked
+                ? "Already awaiting approval"
+                : (isApprover ? "Update price" : "Send for approval")}
           </button>
         </div>
       </form>
@@ -439,7 +469,7 @@ function Select({ value, onChange, options, label }) {
   );
 }
 
-function Row({ row, onEdit, isCustomer }) {
+function Row({ row, onEdit, isCustomer, pendingByCell }) {
   return (
     <tr>
       <td className="site" data-label="Site">
@@ -451,24 +481,36 @@ function Row({ row, onEdit, isCustomer }) {
       {!isCustomer && <td className="muted" data-label="Status">{row.status}</td>}
       {PRICE_FIELDS.map((f) => (
         <td key={f.key} className="num" data-label={f.short}>
-          <PriceCell row={row} field={f} onEdit={onEdit} isCustomer={isCustomer} />
+          <PriceCell row={row} field={f} onEdit={onEdit} isCustomer={isCustomer} pending={pendingByCell?.get(`${row.id}:${f.key}`)} />
         </td>
       ))}
     </tr>
   );
 }
 
-function PriceCell({ row, field, onEdit, isCustomer }) {
+function PriceCell({ row, field, onEdit, isCustomer, pending }) {
   const value = money(row.prices[field.key]);
+
+  // Customers see the live price only. A pending request is internal business.
   if (isCustomer) return <span className="price-ro">{value === "" ? "—" : value}</span>;
+
+  const label = pending
+    ? `Pending price approval — ${field.label} for ${row.website}: ` +
+      `${pending.oldValue === "" ? "—" : "$" + pending.oldValue} → ` +
+      `${pending.newValue === "" ? "—" : "$" + pending.newValue}, ` +
+      `requested by ${pending.requestedBy}`
+    : `Edit ${field.label} for ${row.website}`;
+
   return (
     <button
       type="button"
-      className="price"
+      className={`price ${pending ? "pending" : ""}`}
       onClick={() => onEdit(row, field)}
-      title={`Edit ${field.label} for ${row.website}`}
+      title={label}
     >
       {value === "" ? "—" : value}
+      {pending && <span className="pending-dot" aria-hidden="true">•</span>}
+      {pending && <span className="sr-only"> — pending price approval</span>}
     </button>
   );
 }
