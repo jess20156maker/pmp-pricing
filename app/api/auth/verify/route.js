@@ -1,18 +1,22 @@
 import { NextResponse } from "next/server";
 import {
-  isAllowedEmail, codeIsValid, makeSession, normalizeEmail,
+  isAllowedEmail, passwordIsValid, makeSession, normalizeEmail,
   COOKIE_NAME, COOKIE_MAX_AGE,
 } from "@/lib/auth";
 
 export const runtime = "nodejs";
 
 export async function POST(req) {
-  const { email, code } = await req.json().catch(() => ({}));
+  const { email, password } = await req.json().catch(() => ({}));
   const clean = normalizeEmail(email);
 
-  if (!isAllowedEmail(clean) || !codeIsValid(clean, code)) {
+  // One message for both failures, so this can't be used to discover who has access.
+  if (!isAllowedEmail(clean) || !passwordIsValid(password)) {
     await new Promise((r) => setTimeout(r, 600));
-    return NextResponse.json({ error: "That code isn't right, or it's expired" }, { status: 401 });
+    return NextResponse.json(
+      { error: "That email isn't on the list, or the password is wrong" },
+      { status: 401 }
+    );
   }
 
   const res = NextResponse.json({ ok: true, email: clean });
