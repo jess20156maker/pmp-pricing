@@ -5,6 +5,17 @@ import { PRICE_FIELDS } from "@/lib/fields";
 const PAGE = 100;
 const money = (v) => (v === null || v === undefined || v === "" ? "" : String(v));
 
+// Always US Eastern, so a request reads the same for everyone regardless of
+// where the person looking at it happens to be.
+const whenET = (iso) => {
+  if (!iso) return "";
+  try {
+    return new Date(iso).toLocaleString("en-US", {
+      timeZone: "America/New_York", dateStyle: "medium", timeStyle: "short",
+    }) + " ET";
+  } catch { return ""; }
+};
+
 function uniq(rows, key) {
   return [...new Set(rows.map((r) => r[key]).filter(Boolean))].sort();
 }
@@ -52,6 +63,7 @@ export default function Console({ email, role }) {
   }, []);
 
   useEffect(() => { load(false); }, [load]);
+
 
   const statuses = useMemo(() => (rows ? uniq(rows, "status") : []), [rows]);
   const brands = useMemo(() => (rows ? uniq(rows, "brand") : []), [rows]);
@@ -189,7 +201,7 @@ export default function Console({ email, role }) {
   if (rows === null) {
     return (
       <>
-        <Header email={email} onRefresh={() => load(true)} count="" />
+        <Header email={email} role={role} onRefresh={() => load(true)} count="" />
         <div className="sentinel">Loading…</div>
       </>
     );
@@ -199,6 +211,7 @@ export default function Console({ email, role }) {
     <>
       <Header
         email={email}
+        role={role}
         onRefresh={() => { setRows(null); load(true); }}
         count={`${filtered.length.toLocaleString()} of ${rows.length.toLocaleString()} sites`}
       >
@@ -290,7 +303,8 @@ export default function Console({ email, role }) {
 
 function PriceEditor({ row, field, email, isApprover, pending, onSave, onClose }) {
   const current = money(row.prices[field.key]);
-  const [value, setValue] = useState(current);
+  // With a request in flight, you are editing the requested value, not the live one.
+  const [value, setValue] = useState(pending ? money(pending.newValue) : current);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const inputRef = useRef(null);
@@ -307,10 +321,9 @@ function PriceEditor({ row, field, email, isApprover, pending, onSave, onClose }
   }, [onClose, busy]);
 
   const next = value.trim();
-  // A second request on the same cell would leave two conflicting rows pending,
-  // and whichever was approved last would silently win.
-  const blocked = !!pending && !isApprover;
-  const changed = next !== current && !blocked;
+  // With a request pending you are revising it, so "changed" is measured against
+  // what was asked for rather than the price on the record.
+  const changed = pending ? next !== money(pending.newValue) : next !== current;
   const show = (v) => (v === "" || v === null ? "—" : `$${v}`);
 
   async function submit(e) {
@@ -341,10 +354,10 @@ function PriceEditor({ row, field, email, isApprover, pending, onSave, onClose }
             {pending.oldValue === "" ? "—" : `$${pending.oldValue}`} →{" "}
             {pending.newValue === "" ? "—" : `$${pending.newValue}`}, requested by{" "}
             {pending.requestedBy}
-            {pending.requestedAt ? ` on ${new Date(pending.requestedAt).toLocaleString()}` : ""}.
+            {pending.requestedAt ? ` on ${whenET(pending.requestedAt)}` : ""}.
             {isApprover
               ? " Approve or reject it from the banner at the top."
-              : " The price changes only once an approver accepts it."}
+              : " Change the figure below to revise it — the price moves only once an approver accepts."}
           </div>
         )}
 
@@ -380,9 +393,11 @@ function PriceEditor({ row, field, email, isApprover, pending, onSave, onClose }
           <button type="submit" className="btn go" disabled={!changed || busy}>
             {busy
               ? (isApprover ? "Saving…" : "Sending…")
-              : blocked
-                ? "Already awaiting approval"
-                : (isApprover ? "Update price" : "Send for approval")}
+              : isApprover
+                ? "Update price"
+                : pending
+                  ? "Update request"
+                  : "Send for approval"}
           </button>
         </div>
       </form>
@@ -434,7 +449,7 @@ function Queue({ items, canApprove, onDecide, onClose }) {
                 </div>
                 <div className="queue-by">
                   Requested by <b>{r.requestedBy}</b>
-                  {r.requestedAt ? ` · ${new Date(r.requestedAt).toLocaleString()}` : ""}
+                  {r.requestedAt ? ` · ${whenET(r.requestedAt)}` : ""}
                 </div>
               </div>
               {canApprove && (
@@ -459,13 +474,16 @@ function Queue({ items, canApprove, onDecide, onClose }) {
   );
 }
 
-function Header({ email, onRefresh, count, children }) {
+const ROLE_LABEL = { customer: "Read only", sales: "Sales", approver: "Approver" };
+
+function Header({ email, role, onRefresh, count, children }) {
   return (
     <div className="top">
       <div className="top-row">
         <span className="brand">PMP Sales Pricing</span>
         <span className="count">{count}</span>
         <span className="who" title="Every price you change is recorded against this address">{email}</span>
+        {role && <span className={`role role-${role}`}>{ROLE_LABEL[role] || role}</span>}
         <button className="linkbtn" onClick={onRefresh}>Refresh</button>
         <button className="linkbtn" onClick={async () => { await fetch("/api/logout", { method: "POST" }); window.location.reload(); }}>Sign out</button>
       </div>

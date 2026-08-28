@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { currentUser } from "@/lib/auth";
 import { canRequest, ROLES } from "@/lib/auth";
-import { createRequest, listRequests, getSites } from "@/lib/airtable";
+import { createRequest, listRequests, getSites, findPendingRequest, reviseRequest } from "@/lib/airtable";
 import { PRICE_FIELDS } from "@/lib/fields";
 
 export const runtime = "nodejs";
@@ -58,6 +58,14 @@ export async function POST(req) {
 
     const oldValue = row.prices[field.key] ?? null;
     if (oldValue === clean) return NextResponse.json({ ok: true, unchanged: true });
+
+    // Re-requesting the same cell revises the pending row. Two pending rows for
+    // one price would conflict, and whichever was approved last would win.
+    const existing = await findPendingRequest(recordId, field.key);
+    if (existing) {
+      await reviseRequest(existing.id, { row, field, oldValue, value: clean, user: user.email });
+      return NextResponse.json({ ok: true, id: existing.id, pending: true, revised: true });
+    }
 
     const id = await createRequest({ row, field, oldValue, value: clean, user: user.email });
     return NextResponse.json({ ok: true, id, pending: true });

@@ -168,3 +168,9 @@ td.niche, td.name { max-width: 240px; overflow: hidden; text-overflow: ellipsis;
 .tip-by { display: block; font-size: 11.5px; opacity: .75; margin-top: 4px; }
 .chip-pending { background: #fff8e1; border-color: #e6cf7a; }
 .tip.tip-up { top: auto; bottom: calc(100% + 6px); }
+.role {
+  font-size: 11px; padding: 2px 7px; border-radius: 999px;
+  background: var(--line); color: var(--muted); white-space: nowrap;
+}
+.role-approver { background: #e6f4ea; color: #1e6b38; }
+.role-sales { background: #e8eefc; color: #2a4a8f; }
