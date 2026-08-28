@@ -136,11 +136,16 @@ export default function Console({ email, role }) {
 
   // The saved value lives in rows state, so the grid re-renders from one source
   // of truth instead of each cell holding its own copy.
+  // Airtable can still report a just-decided request as Pending for a moment
+  // after the write. Without this the cell flicks back to amber and looks as
+  // though the approval did not take.
+  const decided = useRef(new Set());
+
   const loadQueue = useCallback(async () => {
     const res = await fetch("/api/requests");
     if (!res.ok) return;
     const d = await res.json().catch(() => ({}));
-    setQueue(d.requests || []);
+    setQueue((d.requests || []).filter((r) => !decided.current.has(r.id)));
   }, []);
 
   useEffect(() => { if (canAsk) loadQueue(); }, [canAsk, loadQueue]);
@@ -173,7 +178,8 @@ export default function Console({ email, role }) {
     return data;
   }, [isApprover, loadQueue]);
 
-  const decide = useCallback(async (id, decision) => {
+  const decide = useCallback(async (req, decision) => {
+    const id = req.id;
     const res = await fetch("/api/requests/decide", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -181,10 +187,24 @@ export default function Console({ email, role }) {
     });
     const data = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(data.error || "Could not record that decision");
+
+    // Drop it locally first, so the cell clears immediately either way.
+    decided.current.add(id);
+    setQueue((q) => (q || []).filter((r) => r.id !== id));
+
+    // Apply the value the server confirmed, rather than refetching — a read
+    // straight after the write can still come back with the old price.
+    if (decision === "approve") {
+      setRows((rs) => (rs || []).map((r) =>
+        r.id === req.recordId
+          ? { ...r, prices: { ...r.prices, [req.fieldKey]: data.value } }
+          : r
+      ));
+    }
+
     await loadQueue();
-    if (decision === "approve") await load(true);   // pull the applied price back in
     return data;
-  }, [loadQueue, load]);
+  }, [loadQueue]);
 
   function clearAll() {
     setQ(""); setStatus(role === "customer" ? "" : ""); setSellable(""); setBrand(""); setAgency(""); setProject("");
@@ -409,10 +429,10 @@ function Queue({ items, canApprove, onDecide, onClose }) {
   const [busyId, setBusyId] = useState(null);
   const [error, setError] = useState("");
 
-  async function act(id, decision) {
-    setBusyId(id); setError("");
+  async function act(req, decision) {
+    setBusyId(req.id); setError("");
     try {
-      await onDecide(id, decision);
+      await onDecide(req, decision);
     } catch (err) {
       setError(err.message);
     } finally {
@@ -455,9 +475,9 @@ function Queue({ items, canApprove, onDecide, onClose }) {
               {canApprove && (
                 <div className="queue-actions">
                   <button className="btn ghost" disabled={busyId === r.id}
-                    onClick={() => act(r.id, "reject")}>Reject</button>
+                    onClick={() => act(r, "reject")}>Reject</button>
                   <button className="btn go" disabled={busyId === r.id}
-                    onClick={() => act(r.id, "approve")}>
+                    onClick={() => act(r, "approve")}>
                     {busyId === r.id ? "Working…" : "Approve"}
                   </button>
                 </div>
