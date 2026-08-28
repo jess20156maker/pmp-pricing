@@ -24,9 +24,10 @@ export async function GET(req) {
     const rows = await getSites({ force });
 
     if (user.role === ROLES.CUSTOMER) {
-      // Customers only ever see sites explicitly marked sellable, whatever
-      // SELLABLE_ONLY is set to for staff.
-      const visible = rows.filter((r) => r.sellable === "Yes").map(forCustomer);
+      // Customers see every site, but only the columns below — the internal
+      // ones never leave the server. Sellable is deliberately NOT used as a
+      // gate here: most records have it blank, which would show an empty grid.
+      const visible = rows.map(forCustomer);
       return NextResponse.json({ rows: visible, count: visible.length, role: user.role });
     }
 

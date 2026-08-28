@@ -74,9 +74,12 @@ Roles are decided server-side on every request from `STAFF_EMAIL_DOMAINS` and
 expires.
 
 Customers are restricted on the server, not merely in the UI: `/api/sites`
-sends them only sites with `Sellable = Yes`, and only the website, name, DR,
-niche, URL and prices. Site status, brand, project, agency, VIP and allocation
-never leave the server. `/api/price` and `/api/requests` reject them outright.
+sends them only the website, name, DR, niche, URL and prices. Site status,
+brand, project, agency, VIP and allocation never leave the server.
+`/api/price` and `/api/requests` reject them outright.
+
+Customers see **every** site, not only sellable ones. `Sellable` is blank on
+most records, so gating on it showed them an empty grid.
 
 ## The approval flow
 

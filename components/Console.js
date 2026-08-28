@@ -35,6 +35,7 @@ export default function Console({ email, role }) {
   const [vipOnly, setVipOnly] = useState(false);
   const [allocOnly, setAllocOnly] = useState(false);
 
+  const [pendingOnly, setPendingOnly] = useState(false);
   const [sort, setSort] = useState({ key: "dr", dir: -1 });
   const [shown, setShown] = useState(PAGE);
 
@@ -56,6 +57,15 @@ export default function Console({ email, role }) {
   const brands = useMemo(() => (rows ? uniq(rows, "brand") : []), [rows]);
   const agencies = useMemo(() => (rows ? uniq(rows, "agency") : []), [rows]);
   const projects = useMemo(() => (rows ? uniq(rows, "project") : []), [rows]);
+
+  // One pending request per price cell, keyed so a cell can show its own state.
+  const pendingByCell = useMemo(() => {
+    const m = new Map();
+    for (const r of queue || []) m.set(`${r.recordId}:${r.fieldKey}`, r);
+    return m;
+  }, [queue]);
+
+  const pendingIds = useMemo(() => new Set((queue || []).map((r) => r.recordId)), [queue]);
 
   const filtered = useMemo(() => {
     if (!rows) return [];
@@ -79,6 +89,7 @@ export default function Console({ email, role }) {
       if (nGpMax !== null && (gp ?? 1e9) > nGpMax) return false;
       if (vipOnly && !r.vip) return false;
       if (allocOnly && !r.allocation) return false;
+      if (pendingOnly && !pendingIds.has(r.id)) return false;
       return true;
     });
 
@@ -94,9 +105,9 @@ export default function Console({ email, role }) {
       if (typeof av === "string") return av.localeCompare(bv) * dir;
       return (av - bv) * dir;
     });
-  }, [rows, q, status, sellable, brand, agency, project, drMin, drMax, gpMin, gpMax, vipOnly, allocOnly, sort]);
+  }, [rows, q, status, sellable, brand, agency, project, drMin, drMax, gpMin, gpMax, vipOnly, allocOnly, pendingOnly, pendingIds, sort]);
 
-  useEffect(() => { setShown(PAGE); }, [q, status, sellable, brand, agency, project, drMin, drMax, gpMin, gpMax, vipOnly, allocOnly, sort]);
+  useEffect(() => { setShown(PAGE); }, [q, status, sellable, brand, agency, project, drMin, drMax, gpMin, gpMax, vipOnly, allocOnly, pendingOnly, sort]);
 
   const sentinel = useRef(null);
   useEffect(() => {
@@ -166,19 +177,12 @@ export default function Console({ email, role }) {
   function clearAll() {
     setQ(""); setStatus(role === "customer" ? "" : ""); setSellable(""); setBrand(""); setAgency(""); setProject("");
     setDrMin(""); setDrMax(""); setGpMin(""); setGpMax("");
-    setVipOnly(false); setAllocOnly(false);
+    setVipOnly(false); setAllocOnly(false); setPendingOnly(false);
   }
 
   function toggleSort(key) {
     setSort((s) => (s.key === key ? { key, dir: -s.dir } : { key, dir: key === "website" || key === "siteName" ? 1 : -1 }));
   }
-
-  // One pending request per price cell, keyed so a cell can show its own state.
-  const pendingByCell = useMemo(() => {
-    const m = new Map();
-    for (const r of queue || []) m.set(`${r.recordId}:${r.fieldKey}`, r);
-    return m;
-  }, [queue]);
 
   const visible = filtered.slice(0, shown);
 
@@ -211,6 +215,13 @@ export default function Console({ email, role }) {
           <input className="num" placeholder="GP ≤" value={gpMax} onChange={(e) => setGpMax(e.target.value)} />
           {!isCustomer && <label className="chip"><input type="checkbox" checked={vipOnly} onChange={(e) => setVipOnly(e.target.checked)} /> VIP</label>}
           {!isCustomer && <label className="chip"><input type="checkbox" checked={allocOnly} onChange={(e) => setAllocOnly(e.target.checked)} /> Allocation</label>}
+          {canAsk && queue !== null && queue.length > 0 && (
+            <label className="chip chip-pending">
+              <input type="checkbox" checked={pendingOnly}
+                onChange={(e) => setPendingOnly(e.target.checked)} />
+              {" "}Awaiting approval ({queue.length})
+            </label>
+          )}
           <button className="linkbtn" onClick={clearAll}>Clear</button>
         </div>
       </Header>
@@ -222,6 +233,9 @@ export default function Console({ email, role }) {
           <b>{queue.length}</b> price {queue.length === 1 ? "change is" : "changes are"} waiting for approval
           <button className="linkbtn" onClick={() => setShowQueue((v) => !v)}>
             {showQueue ? "Hide" : "Review"}
+          </button>
+          <button className="linkbtn" onClick={() => setPendingOnly((v) => !v)}>
+            {pendingOnly ? "Show all sites" : "Show only these"}
           </button>
         </div>
       )}
@@ -494,23 +508,52 @@ function PriceCell({ row, field, onEdit, isCustomer, pending }) {
   // Customers see the live price only. A pending request is internal business.
   if (isCustomer) return <span className="price-ro">{value === "" ? "—" : value}</span>;
 
-  const label = pending
-    ? `Pending price approval — ${field.label} for ${row.website}: ` +
-      `${pending.oldValue === "" ? "—" : "$" + pending.oldValue} → ` +
-      `${pending.newValue === "" ? "—" : "$" + pending.newValue}, ` +
-      `requested by ${pending.requestedBy}`
-    : `Edit ${field.label} for ${row.website}`;
-
-  return (
+  const cell = (
     <button
       type="button"
       className={`price ${pending ? "pending" : ""}`}
       onClick={() => onEdit(row, field)}
-      title={label}
+      title={pending ? undefined : `Edit ${field.label} for ${row.website}`}
     >
       {value === "" ? "—" : value}
       {pending && <span className="pending-dot" aria-hidden="true">•</span>}
-      {pending && <span className="sr-only"> — pending price approval</span>}
+      {pending && <span className="sr-only"> — waiting for approval</span>}
     </button>
+  );
+
+  if (!pending) return cell;
+
+  return <PendingCell cell={cell} pending={pending} />;
+}
+
+// The tooltip sits inside a scrolling table, so it would be clipped by the
+// viewport edge on the last rows. Measure on hover and flip it above instead.
+function PendingCell({ cell, pending }) {
+  const [up, setUp] = useState(false);
+  const wrap = useRef(null);
+
+  function place() {
+    const r = wrap.current?.getBoundingClientRect();
+    if (r) setUp(window.innerHeight - r.bottom < 120);
+  }
+
+  const show = (v) => (v === "" || v === null ? "—" : `$${v}`);
+
+  // Our own tooltip rather than title=, so it shows at once instead of after
+  // the browser's delay, and can carry the whole request rather than one line.
+  return (
+    <span
+      className="tip-wrap"
+      ref={wrap}
+      onMouseEnter={place}
+      onFocus={place}
+    >
+      {cell}
+      <span className={`tip ${up ? "tip-up" : ""}`} role="tooltip">
+        <b>Waiting for approval</b>
+        <span className="tip-change">{show(pending.oldValue)} → {show(pending.newValue)}</span>
+        <span className="tip-by">Requested by {pending.requestedBy}</span>
+      </span>
+    </span>
   );
 }
