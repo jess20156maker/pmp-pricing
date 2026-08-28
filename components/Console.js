@@ -214,7 +214,7 @@ export default function Console({ email, role }) {
           <input className="num" placeholder="GP ≥" value={gpMin} onChange={(e) => setGpMin(e.target.value)} />
           <input className="num" placeholder="GP ≤" value={gpMax} onChange={(e) => setGpMax(e.target.value)} />
           {!isCustomer && <label className="chip"><input type="checkbox" checked={vipOnly} onChange={(e) => setVipOnly(e.target.checked)} /> VIP</label>}
-          {!isCustomer && <label className="chip"><input type="checkbox" checked={allocOnly} onChange={(e) => setAllocOnly(e.target.checked)} /> Allocation</label>}
+          {isApprover && <label className="chip"><input type="checkbox" checked={allocOnly} onChange={(e) => setAllocOnly(e.target.checked)} /> Allocation</label>}
           {canAsk && queue !== null && queue.length > 0 && (
             <label className="chip chip-pending">
               <input type="checkbox" checked={pendingOnly}

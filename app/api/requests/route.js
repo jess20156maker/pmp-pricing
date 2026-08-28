@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { currentUser } from "@/lib/auth";
-import { canRequest } from "@/lib/auth";
+import { canRequest, ROLES } from "@/lib/auth";
 import { createRequest, listRequests, getSites } from "@/lib/airtable";
 import { PRICE_FIELDS } from "@/lib/fields";
 
@@ -49,6 +49,12 @@ export async function POST(req) {
     const rows = await getSites();
     const row = rows.find((r) => r.id === recordId);
     if (!row) return NextResponse.json({ error: "Unknown website record" }, { status: 400 });
+
+    // Sales only ever see allocation sites, so they must not be able to raise a
+    // request against one they were never sent by crafting the record id.
+    if (user.role !== ROLES.APPROVER && !row.allocation) {
+      return NextResponse.json({ error: "That site is not on the sales list" }, { status: 403 });
+    }
 
     const oldValue = row.prices[field.key] ?? null;
     if (oldValue === clean) return NextResponse.json({ ok: true, unchanged: true });

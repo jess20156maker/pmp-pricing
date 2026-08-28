@@ -78,8 +78,13 @@ sends them only the website, name, DR, niche, URL and prices. Site status,
 brand, project, agency, VIP and allocation never leave the server.
 `/api/price` and `/api/requests` reject them outright.
 
-Customers see **every** site, not only sellable ones. `Sellable` is blank on
-most records, so gating on it showed them an empty grid.
+**`PMP Agency Allocation Sales List` is the sellable inventory.** Customers and
+sales only ever receive sites with it ticked; an approver sees every site, so
+they can still price something outside the allocation. Sales cannot raise a
+request against a site they were not sent, even by supplying its record id.
+
+`Sellable` is deliberately not used as the gate — it is blank on most records,
+which showed an empty grid.
 
 ## The approval flow
 

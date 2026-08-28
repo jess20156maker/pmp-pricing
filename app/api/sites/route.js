@@ -23,15 +23,20 @@ export async function GET(req) {
   try {
     const rows = await getSites({ force });
 
+    // "PMP Agency Allocation Sales List" is the sellable inventory. Customers
+    // and sales only ever receive those sites; an approver sees everything so
+    // they can still price a site outside the allocation.
+    const visible = user.role === ROLES.APPROVER
+      ? rows
+      : rows.filter((r) => !!r.allocation);
+
     if (user.role === ROLES.CUSTOMER) {
-      // Customers see every site, but only the columns below — the internal
-      // ones never leave the server. Sellable is deliberately NOT used as a
-      // gate here: most records have it blank, which would show an empty grid.
-      const visible = rows.map(forCustomer);
-      return NextResponse.json({ rows: visible, count: visible.length, role: user.role });
+      // Only the columns below leave the server for a customer.
+      const safe = visible.map(forCustomer);
+      return NextResponse.json({ rows: safe, count: safe.length, role: user.role });
     }
 
-    return NextResponse.json({ rows, count: rows.length, role: user.role });
+    return NextResponse.json({ rows: visible, count: visible.length, role: user.role });
   } catch (err) {
     return NextResponse.json({ error: err.message }, { status: 500 });
   }
