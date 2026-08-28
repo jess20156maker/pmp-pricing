@@ -1,8 +1,11 @@
 # PMP Sales Pricing Console
 
 A small web app at its own URL that reads website pricing from **Master Data Hub → Websites**
-and lets the sales team edit it. No Airtable accounts needed — people sign in with
-their work email and a password the team shares.
+and lets the sales team request changes to it. No Airtable accounts needed — people
+sign in with an email address, and what they can do follows from it.
+
+Customers see prices read-only. Staff can request a change. A named approver
+decides, and only then does the price actually move.
 
 Every price change writes a record to **Pricing Change Log** and stamps
 `Date Last Manual Update` on the website.
@@ -21,7 +24,8 @@ Every price change writes a record to **Pricing Change Log** and stamps
    Environment Variables. The ones you must set:
    - `AIRTABLE_TOKEN`, `AIRTABLE_BASE_ID`, `AIRTABLE_WEBSITES_TABLE`
    - `SESSION_SECRET` — run `openssl rand -hex 32` and paste the result
-   - `ACCESS_PASSWORD` — the password you give the sales team
+   - `AIRTABLE_REQUESTS_TABLE` — the Price Change Requests table
+   - `APPROVER_EMAILS` — who may approve, comma separated
 
 5. **Deploy.** You get a `*.vercel.app` URL immediately. To use your own domain,
    Vercel → Settings → Domains → add `pricing.postmarketpublishing.com` and follow
@@ -51,30 +55,57 @@ npm run dev                    # http://localhost:3000
 
 - **Add or remove an editable price field** — `lib/fields.js`, `PRICE_FIELDS`.
 - **Change which columns show** — `components/Console.js`.
-- **Cut off access** — change `ACCESS_PASSWORD` and redeploy. That is the only lever;
-  there is no per-person allowlist.
+- **Change who can approve** — `APPROVER_EMAILS`. Takes effect immediately.
+- **Change who counts as staff** — `STAFF_EMAIL_DOMAINS`. Everyone else is a
+  read-only customer.
 - **Restrict to a subset of sites** — set `AIRTABLE_VIEW` to an Airtable view name or ID.
 
-## How sign-in works
+## Who can do what
 
-- Someone enters their work email and the shared team password. The email is checked
-  for shape only — it is not a credential, and there is no allowlist. It exists so each
-  price change can be attributed in the log.
-- `ACCESS_PASSWORD` is the only thing gating access.
-- The password is compared in constant time and never stored anywhere but the Vercel
-  environment. If `ACCESS_PASSWORD` is unset the app fails closed — nobody gets in.
-- After signing in, a signed cookie holds their email for 30 days. No database, so it
-  works on serverless where each request can hit a different instance.
-- **`Changed By` is read from that cookie server-side.** The browser never sends a name,
-  so nobody can attribute a price change to a colleague.
+| Signing in as | Role | Can |
+|---|---|---|
+| any other domain | Customer | View sellable sites and prices. Nothing else. |
+| `@postmarketpublishing.com` | Sales | View everything, and request a price change |
+| ...and listed in `APPROVER_EMAILS` | Approver | Approve or reject requests, and edit directly |
+
+Roles are decided server-side on every request from `STAFF_EMAIL_DOMAINS` and
+`APPROVER_EMAILS`, never from anything the browser sends. Removing someone from
+`APPROVER_EMAILS` takes effect on their next request, not when their cookie
+expires.
+
+Customers are restricted on the server, not merely in the UI: `/api/sites`
+sends them only sites with `Sellable = Yes`, and only the website, name, DR,
+niche, URL and prices. Site status, brand, project, agency, VIP and allocation
+never leave the server. `/api/price` and `/api/requests` reject them outright.
+
+## The approval flow
+
+1. Sales click a price and enter a new one. This writes a row to **Price Change
+   Requests** with status Pending. The Websites table is untouched.
+2. Staff see a banner with the number waiting. An approver opens it and gets
+   Approve / Reject on each.
+3. On approval the app writes the price, stamps `Date Last Manual Update`, and
+   appends to **Pricing Change Log** — exactly what the old direct edit did.
+4. The request is then marked Approved with who decided it and when.
+
+The price is applied *before* the request is marked approved. If the write to
+Airtable fails, the request stays Pending rather than being marked done with no
+price change behind it. Deciding an already-decided request is rejected, so a
+double click cannot apply a change twice.
+
+An approver editing a price directly skips the queue — they would only be
+approving their own request otherwise.
 
 ## Known gaps (deliberate, for now)
 
-- **Anyone with the password can sign in, using any email address.** There is no
-  allowlist and the email is not verified — it only labels changes in the log. Everyone
-  shares one password, so change it by hand when somebody leaves. If you later want
-  per-person sign-in, the emailed six-digit code version is in the git history at
-  commit `967615a`.
+- **Email addresses are not verified, and there is no password.** Anyone can type
+  an `@postmarketpublishing.com` address and get staff rights, or an approver's
+  address and approve their own request. The approval trail records what was
+  typed, not who someone is. This is a deliberate trade for zero-friction access;
+  if it needs to become real, reinstate the emailed six-digit sign-in code — it is
+  in the git history at commit `967615a`, and only the sign-in step would change.
+- Approver notification is in-app only. There is no email or Slack alert; an
+  approver sees the banner when they open the console.
 - No bulk edit yet.
 - The second rate card (the sheet tab with the `New` flag and `DA` column) is not in
   Airtable, so it is not in this app either.

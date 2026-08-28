@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { currentUser } from "@/lib/auth";
+import { currentUser, canApprove } from "@/lib/auth";
 import { updatePrice } from "@/lib/airtable";
 import { PRICE_FIELDS } from "@/lib/fields";
 
@@ -10,6 +10,11 @@ export async function POST(req) {
   // The browser cannot claim to be someone else.
   const user = currentUser();
   if (!user) return NextResponse.json({ error: "Not signed in" }, { status: 401 });
+  // Direct writes are the approver's privilege. Sales go through /api/requests,
+  // customers through neither.
+  if (!canApprove(user.role)) {
+    return NextResponse.json({ error: "Price changes need approval" }, { status: 403 });
+  }
 
   const { recordId, fieldKey, value } = await req.json().catch(() => ({}));
 

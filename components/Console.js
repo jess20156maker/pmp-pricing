@@ -9,13 +9,21 @@ function uniq(rows, key) {
   return [...new Set(rows.map((r) => r[key]).filter(Boolean))].sort();
 }
 
-export default function Console({ email }) {
+export default function Console({ email, role }) {
   const [rows, setRows] = useState(null);
   const [error, setError] = useState("");
   const [editing, setEditing] = useState(null); // {row, field}
+  const [queue, setQueue] = useState(null);      // pending requests, approver/sales
+  const [showQueue, setShowQueue] = useState(false);
+
+  const isCustomer = role === "customer";
+  const isApprover = role === "approver";
+  const canAsk = role === "sales" || role === "approver";
 
   const [q, setQ] = useState("");
-  const [status, setStatus] = useState("Live Site");
+  // Customers are never sent Site Status, so defaulting this filter to "Live Site"
+  // would match nothing and show them an empty grid.
+  const [status, setStatus] = useState(role === "customer" ? "" : "Live Site");
   const [sellable, setSellable] = useState("");
   const [brand, setBrand] = useState("");
   const [agency, setAgency] = useState("");
@@ -105,7 +113,30 @@ export default function Console({ email }) {
 
   // The saved value lives in rows state, so the grid re-renders from one source
   // of truth instead of each cell holding its own copy.
+  const loadQueue = useCallback(async () => {
+    const res = await fetch("/api/requests");
+    if (!res.ok) return;
+    const d = await res.json().catch(() => ({}));
+    setQueue(d.requests || []);
+  }, []);
+
+  useEffect(() => { if (canAsk) loadQueue(); }, [canAsk, loadQueue]);
+
+  // Sales raise a request; an approver writes straight through. The server
+  // enforces this too — this only decides which endpoint to call.
   const savePrice = useCallback(async (row, field, next) => {
+    if (!isApprover) {
+      const res = await fetch("/api/requests", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ recordId: row.id, fieldKey: field.key, value: next === "" ? null : next }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || "Could not send that request");
+      await loadQueue();
+      return { requested: true };
+    }
+
     const res = await fetch("/api/price", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -117,10 +148,23 @@ export default function Console({ email }) {
       r.id === row.id ? { ...r, prices: { ...r.prices, [field.key]: data.value } } : r
     ));
     return data;
-  }, []);
+  }, [isApprover, loadQueue]);
+
+  const decide = useCallback(async (id, decision) => {
+    const res = await fetch("/api/requests/decide", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id, decision }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || "Could not record that decision");
+    await loadQueue();
+    if (decision === "approve") await load(true);   // pull the applied price back in
+    return data;
+  }, [loadQueue, load]);
 
   function clearAll() {
-    setQ(""); setStatus(""); setSellable(""); setBrand(""); setAgency(""); setProject("");
+    setQ(""); setStatus(role === "customer" ? "" : ""); setSellable(""); setBrand(""); setAgency(""); setProject("");
     setDrMin(""); setDrMax(""); setGpMin(""); setGpMax("");
     setVipOnly(false); setAllocOnly(false);
   }
@@ -149,22 +193,40 @@ export default function Console({ email }) {
       >
         <div className="filters">
           <input type="search" placeholder="Search domain or site name…" value={q} onChange={(e) => setQ(e.target.value)} />
-          <Select value={status} onChange={setStatus} options={statuses} label="Any status" />
-          <Select value={sellable} onChange={setSellable} options={["Yes", "Paused", "No"]} label="Any sellable" />
-          <Select value={brand} onChange={setBrand} options={brands} label="Any brand" />
-          <Select value={agency} onChange={setAgency} options={agencies} label="Any agency" />
-          <Select value={project} onChange={setProject} options={projects} label="Any project" />
+          {!isCustomer && <Select value={status} onChange={setStatus} options={statuses} label="Any status" />}
+          {!isCustomer && <Select value={sellable} onChange={setSellable} options={["Yes", "Paused", "No"]} label="Any sellable" />}
+          {!isCustomer && <Select value={brand} onChange={setBrand} options={brands} label="Any brand" />}
+          {!isCustomer && <Select value={agency} onChange={setAgency} options={agencies} label="Any agency" />}
+          {!isCustomer && <Select value={project} onChange={setProject} options={projects} label="Any project" />}
           <input className="num" placeholder="DR ≥" value={drMin} onChange={(e) => setDrMin(e.target.value)} />
           <input className="num" placeholder="DR ≤" value={drMax} onChange={(e) => setDrMax(e.target.value)} />
           <input className="num" placeholder="GP ≥" value={gpMin} onChange={(e) => setGpMin(e.target.value)} />
           <input className="num" placeholder="GP ≤" value={gpMax} onChange={(e) => setGpMax(e.target.value)} />
-          <label className="chip"><input type="checkbox" checked={vipOnly} onChange={(e) => setVipOnly(e.target.checked)} /> VIP</label>
-          <label className="chip"><input type="checkbox" checked={allocOnly} onChange={(e) => setAllocOnly(e.target.checked)} /> Allocation</label>
+          {!isCustomer && <label className="chip"><input type="checkbox" checked={vipOnly} onChange={(e) => setVipOnly(e.target.checked)} /> VIP</label>}
+          {!isCustomer && <label className="chip"><input type="checkbox" checked={allocOnly} onChange={(e) => setAllocOnly(e.target.checked)} /> Allocation</label>}
           <button className="linkbtn" onClick={clearAll}>Clear</button>
         </div>
       </Header>
 
       {error && <div className="err-banner">{error}</div>}
+
+      {canAsk && queue !== null && queue.length > 0 && (
+        <div className="queue-bar">
+          <b>{queue.length}</b> price {queue.length === 1 ? "change is" : "changes are"} waiting for approval
+          <button className="linkbtn" onClick={() => setShowQueue((v) => !v)}>
+            {showQueue ? "Hide" : "Review"}
+          </button>
+        </div>
+      )}
+
+      {showQueue && canAsk && (
+        <Queue
+          items={queue || []}
+          canApprove={isApprover}
+          onDecide={decide}
+          onClose={() => setShowQueue(false)}
+        />
+      )}
 
       <div className="scroll">
         <table>
@@ -174,7 +236,7 @@ export default function Console({ email }) {
               <th onClick={() => toggleSort("siteName")}>Site Name</th>
               <th className="num" onClick={() => toggleSort("dr")}>DR</th>
               <th>Niche</th>
-              <th>Status</th>
+              {!isCustomer && <th>Status</th>}
               {PRICE_FIELDS.map((f) => (
                 <th key={f.key} className="num" onClick={() => toggleSort(f.key)} title={f.name}>{f.short}</th>
               ))}
@@ -182,7 +244,7 @@ export default function Console({ email }) {
           </thead>
           <tbody>
             {visible.map((r) => (
-              <Row key={r.id} row={r} onEdit={openEditor} />
+              <Row key={r.id} row={r} onEdit={openEditor} isCustomer={isCustomer} />
             ))}
           </tbody>
         </table>
@@ -195,6 +257,7 @@ export default function Console({ email }) {
           row={editing.row}
           field={editing.field}
           email={email}
+          isApprover={isApprover}
           onSave={savePrice}
           onClose={() => setEditing(null)}
         />
@@ -203,7 +266,7 @@ export default function Console({ email }) {
   );
 }
 
-function PriceEditor({ row, field, email, onSave, onClose }) {
+function PriceEditor({ row, field, email, isApprover, onSave, onClose }) {
   const current = money(row.prices[field.key]);
   const [value, setValue] = useState(current);
   const [busy, setBusy] = useState(false);
@@ -241,7 +304,7 @@ function PriceEditor({ row, field, email, onSave, onClose }) {
   return (
     <div className="modal-back" onMouseDown={(e) => { if (e.target === e.currentTarget && !busy) onClose(); }}>
       <form className="modal" role="dialog" aria-modal="true" aria-labelledby="ct" onSubmit={submit}>
-        <h3 id="ct">Edit price</h3>
+        <h3 id="ct">{isApprover ? "Edit price" : "Request a price change"}</h3>
         <div className="modal-site">{row.website}</div>
         <div className="modal-field">{field.label}</div>
 
@@ -265,8 +328,9 @@ function PriceEditor({ row, field, email, onSave, onClose }) {
         </div>
 
         <p className="modal-warn">
-          This writes straight to the master database. The new price is what everyone
-          sees — the sales sheet, quotes, and anywhere else this site is listed.
+          {isApprover
+            ? "This writes straight to the master database. The new price is what everyone sees — the sales sheet, quotes, and anywhere else this site is listed."
+            : "This does not change the price yet. It goes to an approver, and the price updates only once they approve it."}
         </p>
         <p className="modal-by">Recorded against <b>{email}</b></p>
         {error && <p className="modal-err">{error}</p>}
@@ -274,10 +338,79 @@ function PriceEditor({ row, field, email, onSave, onClose }) {
         <div className="modal-actions">
           <button type="button" className="btn ghost" onClick={onClose} disabled={busy}>Cancel</button>
           <button type="submit" className="btn go" disabled={!changed || busy}>
-            {busy ? "Saving…" : "Update price"}
+            {busy ? (isApprover ? "Saving…" : "Sending…") : (isApprover ? "Update price" : "Send for approval")}
           </button>
         </div>
       </form>
+    </div>
+  );
+}
+
+function Queue({ items, canApprove, onDecide, onClose }) {
+  const [busyId, setBusyId] = useState(null);
+  const [error, setError] = useState("");
+
+  async function act(id, decision) {
+    setBusyId(id); setError("");
+    try {
+      await onDecide(id, decision);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  const show = (v) => (v === "" || v === null ? "—" : `$${v}`);
+
+  return (
+    <div className="modal-back" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}>
+      <div className="modal modal-wide" role="dialog" aria-modal="true" aria-labelledby="qt">
+        <h3 id="qt">Pending price changes</h3>
+        <p className="modal-field">
+          {canApprove
+            ? "Approving writes the price to the master database and records it in the change log."
+            : "Waiting on an approver. You can see what has been asked for, but not decide it."}
+        </p>
+
+        {error && <p className="modal-err">{error}</p>}
+
+        {items.length === 0 && <p className="modal-field">Nothing waiting.</p>}
+
+        <ul className="queue">
+          {items.map((r) => (
+            <li key={r.id} className="queue-item">
+              <div className="queue-main">
+                <div className="queue-site">{r.website}</div>
+                <div className="queue-field">{r.fieldName}</div>
+                <div className="modal-change">
+                  <span className="from">{show(r.oldValue)}</span>
+                  <span className="to-arrow">→</span>
+                  <span className="to">{show(r.newValue)}</span>
+                </div>
+                <div className="queue-by">
+                  Requested by <b>{r.requestedBy}</b>
+                  {r.requestedAt ? ` · ${new Date(r.requestedAt).toLocaleString()}` : ""}
+                </div>
+              </div>
+              {canApprove && (
+                <div className="queue-actions">
+                  <button className="btn ghost" disabled={busyId === r.id}
+                    onClick={() => act(r.id, "reject")}>Reject</button>
+                  <button className="btn go" disabled={busyId === r.id}
+                    onClick={() => act(r.id, "approve")}>
+                    {busyId === r.id ? "Working…" : "Approve"}
+                  </button>
+                </div>
+              )}
+            </li>
+          ))}
+        </ul>
+
+        <div className="modal-actions">
+          <button className="btn ghost" onClick={onClose}>Close</button>
+        </div>
+      </div>
     </div>
   );
 }
@@ -306,7 +439,7 @@ function Select({ value, onChange, options, label }) {
   );
 }
 
-function Row({ row, onEdit }) {
+function Row({ row, onEdit, isCustomer }) {
   return (
     <tr>
       <td className="site" data-label="Site">
@@ -315,18 +448,19 @@ function Row({ row, onEdit }) {
       <td className="name" data-label="Name">{row.siteName}</td>
       <td className="num" data-label="DR">{row.dr ?? ""}</td>
       <td className="niche muted" data-label="Niche">{row.niche}</td>
-      <td className="muted" data-label="Status">{row.status}</td>
+      {!isCustomer && <td className="muted" data-label="Status">{row.status}</td>}
       {PRICE_FIELDS.map((f) => (
         <td key={f.key} className="num" data-label={f.short}>
-          <PriceCell row={row} field={f} onEdit={onEdit} />
+          <PriceCell row={row} field={f} onEdit={onEdit} isCustomer={isCustomer} />
         </td>
       ))}
     </tr>
   );
 }
 
-function PriceCell({ row, field, onEdit }) {
+function PriceCell({ row, field, onEdit, isCustomer }) {
   const value = money(row.prices[field.key]);
+  if (isCustomer) return <span className="price-ro">{value === "" ? "—" : value}</span>;
   return (
     <button
       type="button"

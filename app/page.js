@@ -7,5 +7,5 @@ export const dynamic = "force-dynamic";
 export default function Page() {
   const user = currentUser();
   if (!user) return <Login />;
-  return <Console email={user.email} />;
+  return <Console email={user.email} role={user.role} />;
 }

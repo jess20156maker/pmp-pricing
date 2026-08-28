@@ -3,7 +3,6 @@ import { useState } from "react";
 
 export default function Login() {
   const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
 
@@ -13,7 +12,7 @@ export default function Login() {
     const res = await fetch("/api/auth/verify", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ email, password }),
+      body: JSON.stringify({ email }),
     });
     if (res.ok) { window.location.reload(); return; }
     const d = await res.json().catch(() => ({}));
@@ -25,19 +24,17 @@ export default function Login() {
     <div className="login-wrap">
       <form className="login-card" onSubmit={signIn}>
         <h1>PMP Sales Pricing</h1>
-        <p>Sign in with your work email and the team password.</p>
+        <p>Enter your email to see current pricing.</p>
         <input
           type="email" value={email} autoFocus required
-          autoComplete="email" placeholder="you@postmarketpublishing.com"
+          autoComplete="email" placeholder="you@company.com"
           onChange={(e) => setEmail(e.target.value)}
         />
-        <input
-          type="password" value={password} required
-          autoComplete="current-password" placeholder="Team password"
-          onChange={(e) => setPassword(e.target.value)}
-        />
-        <button disabled={busy}>{busy ? "Signing in…" : "Sign in"}</button>
+        <button disabled={busy}>{busy ? "Signing in…" : "View pricing"}</button>
         {error && <div className="login-err">{error}</div>}
+        <p className="login-note">
+          Post Market Publishing staff are recognised automatically and can request price changes.
+        </p>
       </form>
     </div>
   );
