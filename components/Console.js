@@ -9,7 +9,7 @@ function uniq(rows, key) {
   return [...new Set(rows.map((r) => r[key]).filter(Boolean))].sort();
 }
 
-export default function Console({ email, role }) {
+export default function Console({ email, role, build }) {
   const [rows, setRows] = useState(null);
   const [error, setError] = useState("");
   const [editing, setEditing] = useState(null); // {row, field}
@@ -189,7 +189,7 @@ export default function Console({ email, role }) {
   if (rows === null) {
     return (
       <>
-        <Header email={email} onRefresh={() => load(true)} count="" />
+        <Header email={email} onRefresh={() => load(true)} count="" build={build} />
         <div className="sentinel">Loading…</div>
       </>
     );
@@ -199,6 +199,7 @@ export default function Console({ email, role }) {
     <>
       <Header
         email={email}
+        build={build}
         onRefresh={() => { setRows(null); load(true); }}
         count={`${filtered.length.toLocaleString()} of ${rows.length.toLocaleString()} sites`}
       >
@@ -459,11 +460,12 @@ function Queue({ items, canApprove, onDecide, onClose }) {
   );
 }
 
-function Header({ email, onRefresh, count, children }) {
+function Header({ email, onRefresh, count, build, children }) {
   return (
     <div className="top">
       <div className="top-row">
         <span className="brand">PMP Sales Pricing</span>
+        {build && <span className="build" title="Deployed build">{build}</span>}
         <span className="count">{count}</span>
         <span className="who" title="Every price you change is recorded against this address">{email}</span>
         <button className="linkbtn" onClick={onRefresh}>Refresh</button>
