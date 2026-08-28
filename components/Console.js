@@ -12,7 +12,7 @@ function uniq(rows, key) {
 export default function Console({ email }) {
   const [rows, setRows] = useState(null);
   const [error, setError] = useState("");
-  const [pending, setPending] = useState(null); // {row, field, from, to, resolve}
+  const [editing, setEditing] = useState(null); // {row, field}
 
   const [q, setQ] = useState("");
   const [status, setStatus] = useState("Live Site");
@@ -101,11 +101,23 @@ export default function Console({ email }) {
     return () => io.disconnect();
   }, [filtered.length]);
 
-  const ask = useCallback((req) => new Promise((resolve) => setPending({ ...req, resolve })), []);
+  const openEditor = useCallback((row, field) => setEditing({ row, field }), []);
 
-  function answer(ok) {
-    setPending((p) => { p?.resolve(ok); return null; });
-  }
+  // The saved value lives in rows state, so the grid re-renders from one source
+  // of truth instead of each cell holding its own copy.
+  const savePrice = useCallback(async (row, field, next) => {
+    const res = await fetch("/api/price", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ recordId: row.id, fieldKey: field.key, value: next === "" ? null : next }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || "Could not save that price");
+    setRows((rs) => rs.map((r) =>
+      r.id === row.id ? { ...r, prices: { ...r.prices, [field.key]: data.value } } : r
+    ));
+    return data;
+  }, []);
 
   function clearAll() {
     setQ(""); setStatus(""); setSellable(""); setBrand(""); setAgency(""); setProject("");
@@ -170,7 +182,7 @@ export default function Console({ email }) {
           </thead>
           <tbody>
             {visible.map((r) => (
-              <Row key={r.id} row={r} ask={ask} />
+              <Row key={r.id} row={r} onEdit={openEditor} />
             ))}
           </tbody>
         </table>
@@ -178,45 +190,94 @@ export default function Console({ email }) {
         {filtered.length === 0 && <div className="sentinel">No sites match those filters.</div>}
       </div>
 
-      {pending && <Confirm req={pending} email={email} onAnswer={answer} />}
+      {editing && (
+        <PriceEditor
+          row={editing.row}
+          field={editing.field}
+          email={email}
+          onSave={savePrice}
+          onClose={() => setEditing(null)}
+        />
+      )}
     </>
   );
 }
 
-function Confirm({ req, email, onAnswer }) {
-  const { row, field, from, to } = req;
+function PriceEditor({ row, field, email, onSave, onClose }) {
+  const current = money(row.prices[field.key]);
+  const [value, setValue] = useState(current);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const inputRef = useRef(null);
+
   useEffect(() => {
-    const onKey = (e) => {
-      if (e.key === "Escape") onAnswer(false);
-      if (e.key === "Enter") onAnswer(true);
-    };
+    inputRef.current?.focus();
+    inputRef.current?.select();
+  }, []);
+
+  useEffect(() => {
+    const onKey = (e) => { if (e.key === "Escape" && !busy) onClose(); };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [onAnswer]);
+  }, [onClose, busy]);
 
+  const next = value.trim();
+  const changed = next !== current;
   const show = (v) => (v === "" || v === null ? "—" : `$${v}`);
 
+  async function submit(e) {
+    e.preventDefault();
+    if (!changed || busy) return;
+    setBusy(true); setError("");
+    try {
+      await onSave(row, field, next);
+      onClose();
+    } catch (err) {
+      setError(err.message);
+      setBusy(false);
+    }
+  }
+
   return (
-    <div className="modal-back" onMouseDown={(e) => { if (e.target === e.currentTarget) onAnswer(false); }}>
-      <div className="modal" role="dialog" aria-modal="true" aria-labelledby="ct">
-        <h3 id="ct">Update this price?</h3>
+    <div className="modal-back" onMouseDown={(e) => { if (e.target === e.currentTarget && !busy) onClose(); }}>
+      <form className="modal" role="dialog" aria-modal="true" aria-labelledby="ct" onSubmit={submit}>
+        <h3 id="ct">Edit price</h3>
         <div className="modal-site">{row.website}</div>
         <div className="modal-field">{field.label}</div>
+
+        <label className="modal-label" htmlFor="price-input">New price (USD)</label>
+        <input
+          id="price-input"
+          ref={inputRef}
+          className="modal-input"
+          value={value}
+          placeholder="—"
+          inputMode="decimal"
+          disabled={busy}
+          onChange={(e) => setValue(e.target.value)}
+        />
+        <div className="modal-hint">Leave empty to clear the price.</div>
+
         <div className="modal-change">
-          <span className="from">{show(from)}</span>
+          <span className="from">{show(current)}</span>
           <span className="to-arrow">→</span>
-          <span className="to">{show(to)}</span>
+          <span className="to">{show(next)}</span>
         </div>
+
         <p className="modal-warn">
           This writes straight to the master database. The new price is what everyone
           sees — the sales sheet, quotes, and anywhere else this site is listed.
         </p>
         <p className="modal-by">Recorded against <b>{email}</b></p>
+        {error && <p className="modal-err">{error}</p>}
+
         <div className="modal-actions">
-          <button className="btn ghost" onClick={() => onAnswer(false)}>Cancel</button>
-          <button className="btn go" autoFocus onClick={() => onAnswer(true)}>Update price</button>
+          <button type="button" className="btn ghost" onClick={onClose} disabled={busy}>Cancel</button>
+          <button type="submit" className="btn go" disabled={!changed || busy}>
+            {busy ? "Saving…" : "Update price"}
+          </button>
         </div>
-      </div>
+      </form>
     </div>
   );
 }
@@ -245,7 +306,7 @@ function Select({ value, onChange, options, label }) {
   );
 }
 
-function Row({ row, ask }) {
+function Row({ row, onEdit }) {
   return (
     <tr>
       <td className="site" data-label="Site">
@@ -257,57 +318,23 @@ function Row({ row, ask }) {
       <td className="muted" data-label="Status">{row.status}</td>
       {PRICE_FIELDS.map((f) => (
         <td key={f.key} className="num" data-label={f.short}>
-          <PriceCell row={row} field={f} ask={ask} />
+          <PriceCell row={row} field={f} onEdit={onEdit} />
         </td>
       ))}
     </tr>
   );
 }
 
-function PriceCell({ row, field, ask }) {
-  const [value, setValue] = useState(money(row.prices[field.key]));
-  const [state, setState] = useState("");
-  const original = useRef(money(row.prices[field.key]));
-
-  async function commit() {
-    const next = value.trim();
-    if (next === original.current) { setState(""); return; }
-
-    const confirmed = await ask({ row, field, from: original.current, to: next });
-    if (!confirmed) { setValue(original.current); setState(""); return; }
-
-    const res = await fetch("/api/price", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ recordId: row.id, fieldKey: field.key, value: next === "" ? null : next }),
-    });
-    const data = await res.json().catch(() => ({}));
-    if (!res.ok) {
-      setState("error");
-      alert(data.error || "Could not save that price");
-      setValue(original.current);
-      setTimeout(() => setState(""), 1500);
-      return;
-    }
-    original.current = money(data.value);
-    setValue(money(data.value));
-    row.prices[field.key] = data.value;
-    setState("saved");
-    setTimeout(() => setState(""), 1200);
-  }
-
+function PriceCell({ row, field, onEdit }) {
+  const value = money(row.prices[field.key]);
   return (
-    <input
-      className={`price ${state}`}
-      value={value === "" ? "" : value}
-      placeholder="—"
-      inputMode="decimal"
-      onChange={(e) => setValue(e.target.value)}
-      onBlur={commit}
-      onKeyDown={(e) => {
-        if (e.key === "Enter") e.currentTarget.blur();
-        if (e.key === "Escape") { setValue(original.current); e.currentTarget.blur(); }
-      }}
-    />
+    <button
+      type="button"
+      className="price"
+      onClick={() => onEdit(row, field)}
+      title={`Edit ${field.label} for ${row.website}`}
+    >
+      {value === "" ? "—" : value}
+    </button>
   );
 }
