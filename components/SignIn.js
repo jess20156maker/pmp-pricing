@@ -31,7 +31,7 @@ export default function SignIn({ onClose }) {
   return (
     <div className="modal-back" onMouseDown={(e) => { if (e.target === e.currentTarget && !busy) onClose(); }}>
       <form className="modal" role="dialog" aria-modal="true" aria-labelledby="si" onSubmit={submit}>
-        <h3 id="si">Staff sign in</h3>
+        <h3 id="si">Sign in</h3>
         <p className="modal-field">
           Price changes are made by the Post Market Publishing team. Sign in with your
           work email to request one.

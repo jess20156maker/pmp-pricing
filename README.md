@@ -64,7 +64,7 @@ npm run dev                    # http://localhost:3000
 
 There is no sign-in wall. Anyone who opens the link sees the price list
 read-only, straight away — customers never meet a login screen. Staff sign in
-from **Staff sign in** in the header, or by clicking any price, which prompts
+from **Sign in** in the header, or by clicking any price, which prompts
 for a work email and then returns them to the cell they clicked.
 
 ## Who can do what

@@ -543,7 +543,7 @@ function Header({ email, role, signedIn, onSignIn, onRefresh, count, children })
         {signedIn ? (
           <button className="linkbtn" onClick={async () => { await fetch("/api/logout", { method: "POST" }); window.location.reload(); }}>Sign out</button>
         ) : (
-          <button className="linkbtn" onClick={onSignIn}>Staff sign in</button>
+          <button className="linkbtn" onClick={onSignIn}>Sign in</button>
         )}
       </div>
       {children}
