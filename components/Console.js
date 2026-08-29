@@ -81,6 +81,13 @@ export default function Console({ email, role, signedIn }) {
 
   const pendingIds = useMemo(() => new Set((queue || []).map((r) => r.recordId)), [queue]);
 
+  // The "Awaiting approval" chip only exists while something is waiting. Once
+  // the last request is decided it disappears — so leaving the filter on would
+  // show an empty table with no visible control to turn it off again.
+  useEffect(() => {
+    if (pendingOnly && queue !== null && queue.length === 0) setPendingOnly(false);
+  }, [pendingOnly, queue]);
+
   const filtered = useMemo(() => {
     if (!rows) return [];
     const needle = q.trim().toLowerCase();
