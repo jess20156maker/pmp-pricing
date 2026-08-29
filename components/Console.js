@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useMemo, useRef, useState, useCallback } from "react";
 import { PRICE_FIELDS } from "@/lib/fields";
+import SignIn from "@/components/SignIn";
 
 const PAGE = 100;
 const money = (v) => (v === null || v === undefined || v === "" ? "" : String(v));
@@ -20,12 +21,13 @@ function uniq(rows, key) {
   return [...new Set(rows.map((r) => r[key]).filter(Boolean))].sort();
 }
 
-export default function Console({ email, role }) {
+export default function Console({ email, role, signedIn }) {
   const [rows, setRows] = useState(null);
   const [error, setError] = useState("");
   const [editing, setEditing] = useState(null); // {row, field}
   const [queue, setQueue] = useState(null);      // pending requests, approver/sales
   const [showQueue, setShowQueue] = useState(false);
+  const [showSignIn, setShowSignIn] = useState(false);
 
   const isCustomer = role === "customer";
   const isApprover = role === "approver";
@@ -132,7 +134,18 @@ export default function Console({ email, role }) {
     return () => io.disconnect();
   }, [filtered.length]);
 
-  const openEditor = useCallback((row, field) => setEditing({ row, field }), []);
+  const openEditor = useCallback((row, field) => {
+    if (!signedIn) {
+      // Remember which cell, so signing in lands back on it rather than
+      // dropping the person at the top of a 5,000 row table.
+      try {
+        sessionStorage.setItem("pmp_intent", JSON.stringify({ id: row.id, key: field.key }));
+      } catch { /* private browsing */ }
+      setShowSignIn(true);
+      return;
+    }
+    setEditing({ row, field });
+  }, [signedIn]);
 
   // The saved value lives in rows state, so the grid re-renders from one source
   // of truth instead of each cell holding its own copy.
@@ -149,6 +162,21 @@ export default function Console({ email, role }) {
   }, []);
 
   useEffect(() => { if (canAsk) loadQueue(); }, [canAsk, loadQueue]);
+
+  // Reopen whatever was clicked before signing in.
+  useEffect(() => {
+    if (!rows || !canAsk) return;
+    let intent;
+    try {
+      const raw = sessionStorage.getItem("pmp_intent");
+      if (!raw) return;
+      sessionStorage.removeItem("pmp_intent");
+      intent = JSON.parse(raw);
+    } catch { return; }
+    const row = rows.find((r) => r.id === intent?.id);
+    const field = PRICE_FIELDS.find((f) => f.key === intent?.key);
+    if (row && field) setEditing({ row, field });
+  }, [rows, canAsk]);
 
   // Sales raise a request; an approver writes straight through. The server
   // enforces this too — this only decides which endpoint to call.
@@ -221,7 +249,8 @@ export default function Console({ email, role }) {
   if (rows === null) {
     return (
       <>
-        <Header email={email} role={role} onRefresh={() => load(true)} count="" />
+        <Header email={email} role={role} signedIn={signedIn}
+          onSignIn={() => setShowSignIn(true)} onRefresh={() => load(true)} count="" />
         <div className="sentinel">Loading…</div>
       </>
     );
@@ -232,6 +261,8 @@ export default function Console({ email, role }) {
       <Header
         email={email}
         role={role}
+        signedIn={signedIn}
+        onSignIn={() => setShowSignIn(true)}
         onRefresh={() => { setRows(null); load(true); }}
         count={`${filtered.length.toLocaleString()} of ${rows.length.toLocaleString()} sites`}
       >
@@ -298,13 +329,15 @@ export default function Console({ email, role }) {
           </thead>
           <tbody>
             {visible.map((r) => (
-              <Row key={r.id} row={r} onEdit={openEditor} isCustomer={isCustomer} pendingByCell={pendingByCell} />
+              <Row key={r.id} row={r} onEdit={openEditor} readOnly={signedIn && isCustomer} isCustomer={isCustomer} pendingByCell={pendingByCell} />
             ))}
           </tbody>
         </table>
         {shown < filtered.length && <div className="sentinel" ref={sentinel}>Loading more…</div>}
         {filtered.length === 0 && <div className="sentinel">No sites match those filters.</div>}
       </div>
+
+      {showSignIn && <SignIn onClose={() => setShowSignIn(false)} />}
 
       {editing && (
         <PriceEditor
@@ -496,16 +529,22 @@ function Queue({ items, canApprove, onDecide, onClose }) {
 
 const ROLE_LABEL = { customer: "Read only", sales: "Sales", approver: "Approver" };
 
-function Header({ email, role, onRefresh, count, children }) {
+function Header({ email, role, signedIn, onSignIn, onRefresh, count, children }) {
   return (
     <div className="top">
       <div className="top-row">
         <span className="brand">PMP Sales Pricing</span>
         <span className="count">{count}</span>
-        <span className="who" title="Every price you change is recorded against this address">{email}</span>
-        {role && <span className={`role role-${role}`}>{ROLE_LABEL[role] || role}</span>}
+        {signedIn && (
+          <span className="who" title="Every price you change is recorded against this address">{email}</span>
+        )}
+        {signedIn && role && <span className={`role role-${role}`}>{ROLE_LABEL[role] || role}</span>}
         <button className="linkbtn" onClick={onRefresh}>Refresh</button>
-        <button className="linkbtn" onClick={async () => { await fetch("/api/logout", { method: "POST" }); window.location.reload(); }}>Sign out</button>
+        {signedIn ? (
+          <button className="linkbtn" onClick={async () => { await fetch("/api/logout", { method: "POST" }); window.location.reload(); }}>Sign out</button>
+        ) : (
+          <button className="linkbtn" onClick={onSignIn}>Staff sign in</button>
+        )}
       </div>
       {children}
     </div>
@@ -521,7 +560,7 @@ function Select({ value, onChange, options, label }) {
   );
 }
 
-function Row({ row, onEdit, isCustomer, pendingByCell }) {
+function Row({ row, onEdit, isCustomer, readOnly, pendingByCell }) {
   return (
     <tr>
       <td className="site" data-label="Site">
@@ -533,18 +572,19 @@ function Row({ row, onEdit, isCustomer, pendingByCell }) {
       {!isCustomer && <td className="muted" data-label="Status">{row.status}</td>}
       {PRICE_FIELDS.map((f) => (
         <td key={f.key} className="num" data-label={f.short}>
-          <PriceCell row={row} field={f} onEdit={onEdit} isCustomer={isCustomer} pending={pendingByCell?.get(`${row.id}:${f.key}`)} />
+          <PriceCell row={row} field={f} onEdit={onEdit} readOnly={readOnly} pending={pendingByCell?.get(`${row.id}:${f.key}`)} />
         </td>
       ))}
     </tr>
   );
 }
 
-function PriceCell({ row, field, onEdit, isCustomer, pending }) {
+function PriceCell({ row, field, onEdit, readOnly, pending }) {
   const value = money(row.prices[field.key]);
 
-  // Customers see the live price only. A pending request is internal business.
-  if (isCustomer) return <span className="price-ro">{value === "" ? "—" : value}</span>;
+  // A signed-in customer gets plain text. Someone not signed in keeps a
+  // clickable cell, which is how staff reach the sign-in prompt.
+  if (readOnly) return <span className="price-ro">{value === "" ? "—" : value}</span>;
 
   const cell = (
     <button

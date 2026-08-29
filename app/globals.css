@@ -174,3 +174,4 @@ td.niche, td.name { max-width: 240px; overflow: hidden; text-overflow: ellipsis;
 }
 .role-approver { background: #e6f4ea; color: #1e6b38; }
 .role-sales { background: #e8eefc; color: #2a4a8f; }
+.signin-input { text-align: left; font-size: 15px; }

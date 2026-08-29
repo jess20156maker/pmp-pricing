@@ -16,8 +16,10 @@ function forCustomer(row) {
 }
 
 export async function GET(req) {
+  // Readable without signing in. Anyone not signed in is treated as a customer
+  // and gets exactly what a customer gets — nothing more leaves the server.
   const user = currentUser();
-  if (!user) return NextResponse.json({ error: "Not signed in" }, { status: 401 });
+  const role = user?.role || ROLES.CUSTOMER;
 
   const force = new URL(req.url).searchParams.get("refresh") === "1";
   try {
@@ -26,17 +28,17 @@ export async function GET(req) {
     // "PMP Agency Allocation Sales List" is the sellable inventory. Customers
     // and sales only ever receive those sites; an approver sees everything so
     // they can still price a site outside the allocation.
-    const visible = user.role === ROLES.APPROVER
+    const visible = role === ROLES.APPROVER
       ? rows
       : rows.filter((r) => !!r.allocation);
 
-    if (user.role === ROLES.CUSTOMER) {
+    if (role === ROLES.CUSTOMER) {
       // Only the columns below leave the server for a customer.
       const safe = visible.map(forCustomer);
-      return NextResponse.json({ rows: safe, count: safe.length, role: user.role });
+      return NextResponse.json({ rows: safe, count: safe.length, role });
     }
 
-    return NextResponse.json({ rows: visible, count: visible.length, role: user.role });
+    return NextResponse.json({ rows: visible, count: visible.length, role });
   } catch (err) {
     return NextResponse.json({ error: err.message }, { status: 500 });
   }

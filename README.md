@@ -60,11 +60,19 @@ npm run dev                    # http://localhost:3000
   read-only customer.
 - **Restrict to a subset of sites** — set `AIRTABLE_VIEW` to an Airtable view name or ID.
 
+## Signing in
+
+There is no sign-in wall. Anyone who opens the link sees the price list
+read-only, straight away — customers never meet a login screen. Staff sign in
+from **Staff sign in** in the header, or by clicking any price, which prompts
+for a work email and then returns them to the cell they clicked.
+
 ## Who can do what
 
 | Signing in as | Role | Can |
 |---|---|---|
-| any other domain | Customer | View sellable sites and prices. Nothing else. |
+| not signed in | Customer | View sites and prices. Nothing else. |
+| any other domain | Customer | The same |
 | `@postmarketpublishing.com` | Sales | View everything, and request a price change |
 | ...and listed in `APPROVER_EMAILS` | Approver | Approve or reject requests, and edit directly |
 
@@ -73,8 +81,11 @@ Roles are decided server-side on every request from `STAFF_EMAIL_DOMAINS` and
 `APPROVER_EMAILS` takes effect on their next request, not when their cookie
 expires.
 
-Customers are restricted on the server, not merely in the UI: `/api/sites`
-sends them only the website, name, DR, niche, URL and prices. Site status,
+`/api/sites` is readable without a session and treats anyone unauthenticated
+as a customer. That is deliberate: the email was never verified, so it gated
+nothing — it only labelled who made a change. Customers are restricted on the
+server, not merely in the UI: `/api/sites` sends them only the website, name,
+DR, niche, URL and prices. Site status,
 brand, project, agency, VIP and allocation never leave the server.
 `/api/price` and `/api/requests` reject them outright.
 
