@@ -134,18 +134,7 @@ export default function Console({ email, role, signedIn }) {
     return () => io.disconnect();
   }, [filtered.length]);
 
-  const openEditor = useCallback((row, field) => {
-    if (!signedIn) {
-      // Remember which cell, so signing in lands back on it rather than
-      // dropping the person at the top of a 5,000 row table.
-      try {
-        sessionStorage.setItem("pmp_intent", JSON.stringify({ id: row.id, key: field.key }));
-      } catch { /* private browsing */ }
-      setShowSignIn(true);
-      return;
-    }
-    setEditing({ row, field });
-  }, [signedIn]);
+  const openEditor = useCallback((row, field) => setEditing({ row, field }), []);
 
   // The saved value lives in rows state, so the grid re-renders from one source
   // of truth instead of each cell holding its own copy.
@@ -163,20 +152,6 @@ export default function Console({ email, role, signedIn }) {
 
   useEffect(() => { if (canAsk) loadQueue(); }, [canAsk, loadQueue]);
 
-  // Reopen whatever was clicked before signing in.
-  useEffect(() => {
-    if (!rows || !canAsk) return;
-    let intent;
-    try {
-      const raw = sessionStorage.getItem("pmp_intent");
-      if (!raw) return;
-      sessionStorage.removeItem("pmp_intent");
-      intent = JSON.parse(raw);
-    } catch { return; }
-    const row = rows.find((r) => r.id === intent?.id);
-    const field = PRICE_FIELDS.find((f) => f.key === intent?.key);
-    if (row && field) setEditing({ row, field });
-  }, [rows, canAsk]);
 
   // Sales raise a request; an approver writes straight through. The server
   // enforces this too — this only decides which endpoint to call.
@@ -329,7 +304,7 @@ export default function Console({ email, role, signedIn }) {
           </thead>
           <tbody>
             {visible.map((r) => (
-              <Row key={r.id} row={r} onEdit={openEditor} readOnly={signedIn && isCustomer} isCustomer={isCustomer} pendingByCell={pendingByCell} />
+              <Row key={r.id} row={r} onEdit={openEditor} readOnly={!canAsk} isCustomer={isCustomer} pendingByCell={pendingByCell} />
             ))}
           </tbody>
         </table>
