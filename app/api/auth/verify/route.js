@@ -19,7 +19,7 @@ export async function POST(req) {
   // changes nothing about what they can see.
   if (!isStaffEmail(clean)) {
     return NextResponse.json(
-      { error: "Signing in is for Post Market Publishing staff. You can see all prices without signing in." },
+      { error: "Sign in not allowed" },
       { status: 403 }
     );
   }
