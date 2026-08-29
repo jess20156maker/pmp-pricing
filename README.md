@@ -67,12 +67,15 @@ read-only, straight away — customers never meet a login screen, and prices are
 plain text they cannot click. Staff sign in from **Sign in** in the header;
 price cells only become clickable once signed in as staff.
 
+Signing in is refused for anything other than a staff domain. Viewing needs no
+account, so a session for an outside address would grant nothing — better to
+say so than to hand out one that changes nothing.
+
 ## Who can do what
 
 | Signing in as | Role | Can |
 |---|---|---|
 | not signed in | Customer | View sites and prices. Nothing else. |
-| any other domain | Customer | The same |
 | `@postmarketpublishing.com` | Sales | View everything, and request a price change |
 | ...and listed in `APPROVER_EMAILS` | Approver | Approve or reject requests, and edit directly |
 
