@@ -19,7 +19,7 @@ export async function POST(req) {
   // changes nothing about what they can see.
   if (!isStaffEmail(clean)) {
     return NextResponse.json(
-      { error: "Sign in not allowed" },
+      { error: "Internal staff sign in only — use your company email" },
       { status: 403 }
     );
   }
