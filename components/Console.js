@@ -6,14 +6,14 @@ import SignIn from "@/components/SignIn";
 const PAGE = 100;
 const money = (v) => (v === null || v === undefined || v === "" ? "" : String(v));
 
-// Always US Eastern, so a request reads the same for everyone regardless of
+// Always US Pacific, so a request reads the same for everyone regardless of
 // where the person looking at it happens to be.
-const whenET = (iso) => {
+const whenPT = (iso) => {
   if (!iso) return "";
   try {
     return new Date(iso).toLocaleString("en-US", {
-      timeZone: "America/New_York", dateStyle: "medium", timeStyle: "short",
-    }) + " ET";
+      timeZone: "America/Los_Angeles", dateStyle: "medium", timeStyle: "short",
+    }) + " PT";
   } catch { return ""; }
 };
 
@@ -389,7 +389,7 @@ function PriceEditor({ row, field, email, isApprover, pending, onSave, onClose }
             {pending.oldValue === "" ? "—" : `$${pending.oldValue}`} →{" "}
             {pending.newValue === "" ? "—" : `$${pending.newValue}`}, requested by{" "}
             {pending.requestedBy}
-            {pending.requestedAt ? ` on ${whenET(pending.requestedAt)}` : ""}.
+            {pending.requestedAt ? ` on ${whenPT(pending.requestedAt)}` : ""}.
             {isApprover
               ? " Approve or reject it from the banner at the top."
               : " Change the figure below to revise it — the price moves only once an approver accepts."}
@@ -484,7 +484,7 @@ function Queue({ items, canApprove, onDecide, onClose }) {
                 </div>
                 <div className="queue-by">
                   Requested by <b>{r.requestedBy}</b>
-                  {r.requestedAt ? ` · ${whenET(r.requestedAt)}` : ""}
+                  {r.requestedAt ? ` · ${whenPT(r.requestedAt)}` : ""}
                 </div>
               </div>
               {canApprove && (
